@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_bg_top">#FF1D3B5C</color>
+    <color name="ic_bg_bottom">#FF0E1C2E</color>
+    <color name="background">#FFF5F8FC</color>
+    <color name="splash_background">#FF0E1C2E</color>
+</resources>
