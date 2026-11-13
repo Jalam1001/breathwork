@@ -197,3 +197,7 @@ th, td { text-align: left; vertical-align: top; padding: 8px; border-bottom: 1px
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
 @media (min-width: 720px) { .cards { grid-template-columns: 1fr 1fr; } }
 :root[data-night=on] .card, :root[data-night=on] .hero, :root[data-night=on] button.primary { filter: brightness(.82) saturate(1.1); }
+.lang-link { display: inline-grid; place-items: center; min-width: 48px; height: 48px; padding: 0 10px; border-radius: 24px; font-weight: 800; font-size: .95rem; color: var(--on); text-decoration: none; border: 1.5px solid var(--panel-line); font-family: "Noto Sans Devanagari", "Nirmala UI", "Kohinoor Devanagari", "Mangal", system-ui, sans-serif; }
+.lang-link:hover { background: var(--panel); }
+@media (max-width: 420px) { .bar .actions .icon-btn, .bar .actions .lang-link { width: 44px; min-width: 44px; height: 44px; } .bar .actions .lang-link { width: auto; padding: 0 8px; } .bar h1.brand { font-size: 1.45rem; flex: none; } .bar .actions { margin-left: auto; gap: 0; } }
+@media (max-width: 380px) { .bar { padding-left: 12px; padding-right: 4px; } .bar .actions .icon-btn { width: 40px; min-width: 40px; } .bar h1.brand { font-size: 1.3rem; } }

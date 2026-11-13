@@ -2,6 +2,8 @@
 
 **Use it in your browser, no install or Play Store needed: https://jalam1001.github.io/breathwork/**
 
+**हिन्दी संस्करण (Hindi version):** https://jalam1001.github.io/breathwork-hindi/ · source: https://github.com/Jalam1001/breathwork-hindi
+
 ## Web app (PWA)
 The web version has the same seven techniques, timings, safety warning and session flow as the Android app. It is a static site in [`docs/`](docs/) (plain HTML, CSS and JavaScript, no build step, no backend, no trackers, no external CDNs) served by GitHub Pages.
 

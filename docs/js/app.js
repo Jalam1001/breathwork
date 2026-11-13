@@ -122,7 +122,7 @@ function stats() {
 const tech = (id) => `data-tech="${esc(id)}"`;
 function renderHome() {
   const { streak, todayMin } = stats();
-  app.innerHTML = `${bar('BreathWork', { gradient: true, actions: `${nightButton()}${themeButton()}
+  app.innerHTML = `${bar('BreathWork', { gradient: true, actions: `<a class="lang-link" href="https://jalam1001.github.io/breathwork-hindi/" hreflang="hi" lang="hi" aria-label="हिन्दी संस्करण (Hindi version)">हिन्दी</a>${nightButton()}${themeButton()}
       <a class="icon-btn" href="#/history" aria-label="History">${svgI('history')}</a>
       <a class="icon-btn" href="#/about" aria-label="About and sources">${svgI('about')}</a>` })}
   <main class="content">
@@ -136,7 +136,7 @@ function renderHome() {
     </ul>
     <p class="fine">Techniques discussed on the Huberman Lab podcast and in Balban et al. 2023 (Cell Reports Medicine).
       BreathWork is independent and <strong>not affiliated with or endorsed by Huberman Lab</strong>. Not medical advice.
-      <a href="#/about">Sources &amp; about</a></p>
+      <a href="#/about">Sources &amp; about</a> · <a href="https://jalam1001.github.io/breathwork-hindi/" lang="hi" hreflang="hi">हिन्दी में पढ़ें</a></p>
   </main>`;
   bindChrome();
 }
@@ -453,7 +453,7 @@ function renderAbout() {
     <p>Timed sessions use <strong>whole breath cycles only</strong>: the real length is floor(minutes × 60 ÷ cycle) × cycle, at least one cycle, and is shown before you start. Example: 5 min of 4-second box breathing is 18 cycles, or 4:48.</p>
     <h2>Eyes-closed audio guide</h2>
     <p>Rising tone for the whole inhale · short bright chirp for the sigh's second sip · warm falling tone for the whole exhale · soft pulsing hum (with quiet ticks) while holding · soft chime at each corner of the box · singing-bowl bell at start and end · optional halfway chime, ocean bed and spoken cues.</p>
-    <p>Full notes: ${a('https://github.com/Jalam1001/breathwork/blob/main/RESEARCH.md', 'RESEARCH.md on GitHub')} · ${a('https://github.com/Jalam1001/breathwork', 'Source code')}</p>
+    <p>Full notes: ${a('https://github.com/Jalam1001/breathwork/blob/main/RESEARCH.md', 'RESEARCH.md on GitHub')} · ${a('https://github.com/Jalam1001/breathwork', 'Source code')} · <a href="https://jalam1001.github.io/breathwork-hindi/" lang="hi" hreflang="hi">हिन्दी संस्करण</a> (with a Hindi essay, ${a('https://jalam1001.github.io/breathwork-hindi/essay.html', '“साँस की पुनर्खोज”')})</p>
     <h2>Privacy</h2>
     <p>No accounts, ads, analytics, or trackers. Settings and history stay in this browser's local storage. After the first visit the app works offline.</p>
     <h2>Install on your phone</h2>
