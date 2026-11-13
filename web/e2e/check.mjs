@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import assert from 'node:assert/strict';
 
-const SHOTS = process.env.SHOTS || '/workspace/breathwork-web-shots';
+const SHOTS = process.env.SHOTS || '/workspace/breathwork-web-shots-v2';
 const BASE = process.env.BASE_URL || 'http://127.0.0.1:8099/';
 mkdirSync(SHOTS, { recursive: true });
 let server;
@@ -15,12 +15,27 @@ if (!process.env.BASE_URL) {
 }
 const browser = await chromium.launch({ executablePath: process.env.CHROME || '/usr/bin/google-chrome', args: ['--autoplay-policy=no-user-gesture-required'] });
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, colorScheme: 'dark' });
+await ctx.addInitScript(() => {
+  // Instrumented AudioContext: record every oscillator's frequency automation and start/stop times.
+  window.__osc = []; window.__bufsrc = 0;
+  const B = window.BaseAudioContext || window.AudioContext;
+  const orig = B.prototype.createOscillator, ob = B.prototype.createBufferSource;
+  B.prototype.createOscillator = function () {
+    const o = orig.call(this), rec = { ev: [], start: null, stop: null }, f = o.frequency;
+    for (const m of ['setValueAtTime', 'exponentialRampToValueAtTime', 'linearRampToValueAtTime']) { const fn = f[m].bind(f); f[m] = (v, t) => { rec.ev.push([m, v, t]); return fn(v, t); }; }
+    const s0 = o.start.bind(o), s1 = o.stop.bind(o);
+    o.start = (t = 0) => { rec.start = t; return s0(t); }; o.stop = (t = 0) => { if (rec.stop == null) rec.stop = t; return s1(t); };
+    window.__osc.push(rec); return o;
+  };
+  B.prototype.createBufferSource = function () { window.__bufsrc++; return ob.call(this); };
+});
 const page = await ctx.newPage();
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', (e) => errors.push(String(e)));
 const shot = (n) => page.screenshot({ path: `${SHOTS}/${n}.png` });
 const results = [];
+const pad = (x) => String(x).padStart(2, '0');
 const ok = (msg) => { results.push(`PASS ${msg}`); console.log(`PASS ${msg}`); };
 
 try {
@@ -47,7 +62,7 @@ try {
       await page.fill('#customMin', '2'); assert.match(await page.locator('#summary').innerText(), /7 breaths · 1:52/); ok('custom 2 min → 1:52');
       await page.locator('label.chip-opt:has(input[name=minutes][value="5"])').click();
       await page.evaluate(() => scrollTo(0, 0));
-      await shot(`0${n++}-detail-box`);
+      await shot(`${pad(n++)}-detail-box`);
     }
     if (id === 'cyclic_hyper') {
       await page.locator('label.chip-opt:has(input[name=rounds][value="1"])').click();
@@ -59,7 +74,7 @@ try {
     if (id === 'cyclic_hyper') {
       await page.waitForSelector('dialog[open]');
       assert.ok(await page.locator('#warnStart').isDisabled()); ok('hyper safety dialog blocks Start until acknowledged');
-      await shot(`0${n++}-safety-dialog`);
+      await shot(`${pad(n++)}-safety-dialog`);
       await page.check('#ackBox'); await page.click('#warnStart');
     }
     await page.waitForSelector('.pacer');
@@ -69,13 +84,13 @@ try {
     const label = await page.locator('#phaseLabel').innerText();
     const counter = await page.locator('#counter').innerText();
     ok(`${id} running: phase "${label}", "${counter}", ${await page.locator('#left').innerText()}`);
-    if (['cyclic_sigh', 'box', 'cyclic_hyper', 'resonance'].includes(id)) await shot(`0${n++}-session-${id}`);
+    if (['cyclic_sigh', 'box', 'cyclic_hyper', 'resonance'].includes(id)) await shot(`${pad(n++)}-session-${id}`);
     await page.click('#pauseBtn');
     const left1 = await page.locator('#left').innerText(); const r1 = await page.locator('#prog').getAttribute('aria-valuenow');
     await page.waitForTimeout(1500);
     assert.equal(await page.locator('#left').innerText(), left1); assert.equal(await page.locator('#prog').getAttribute('aria-valuenow'), r1);
     assert.equal(await page.locator('#pauseBtn').innerText(), 'Resume'); ok(`${id} pause freezes time`);
-    if (id === 'box') await shot(`0${n++}-session-paused`);
+    if (id === 'box') await shot(`${pad(n++)}-session-paused`);
     await page.click('#pauseBtn'); await page.waitForTimeout(1200);
     assert.notEqual(await page.locator('#left').innerText(), left1); ok(`${id} resume continues`);
     await page.click('#endBtn');
@@ -83,32 +98,93 @@ try {
     await page.click('#doneBtn'); await page.waitForSelector('#startBtn');
   }
 
+  // ---------- Eyes-closed audio graph checks ----------
+  const glides = () => page.evaluate(() => window.__osc
+    .map((r) => { const s = r.ev.find((e) => e[0] === 'setValueAtTime'), x = r.ev.find((e) => e[0] === 'exponentialRampToValueAtTime');
+      return s && x ? { f0: s[1], f1: x[1], dur: x[2] - s[2], t0: s[2] } : null; })
+    .filter(Boolean));
+  const near = (a, b, tol = 0.15) => Math.abs(a - b) <= tol;
+  await page.goto(`${BASE}#/t/cyclic_sigh`); await page.waitForSelector('#startBtn');
+  assert.ok(await page.locator('#eyesSwitch').isChecked()); ok('eyes-closed mode is ON by default');
+  await page.locator('label.toggle:has([data-cue=ambient])').click();
+  await page.locator('label.toggle:has([data-cue=voice])').click();
+  await page.locator('#eyesSwitch').scrollIntoViewIfNeeded(); await shot(`${pad(n++)}-detail-eyes-closed`);
+  await page.locator('#cuesPanel').scrollIntoViewIfNeeded(); await shot(`${pad(n++)}-detail-sound-cues`);
+  await page.evaluate(() => { window.__osc.length = 0; });
+  await page.click('#startBtn');
+  await page.waitForTimeout(3000 + 5500); await shot(`${pad(n++)}-session-sigh-exhale`);
+  await page.waitForTimeout(5000);
+  let g = (await glides()).filter((x) => x.dur > 0.5);
+  // start pitch can be a hair above nominal when a tick lands a few ms late (glide starts where it would be by then)
+  const up = g.find((x) => x.f1 === 440 && x.f0 >= 220 && x.f0 < 232), chirp = g.find((x) => x.f1 === 880 && x.f0 >= 587 && x.f0 < 610), down = g.find((x) => x.f1 === 196 && x.f0 <= 392 && x.f0 > 375);
+  assert.ok(up && near(up.dur, 3), `inhale glide ${JSON.stringify(up)}`);
+  assert.ok(chirp && near(chirp.dur, 1), `top-up chirp ${JSON.stringify(chirp)}`);
+  assert.ok(down && near(down.dur, 6), `exhale glide ${JSON.stringify(down)}`);
+  ok(`cyclic sigh audio: inhale glide ${up.f0.toFixed(0)}→440 Hz over ${up.dur.toFixed(2)} s, chirp ${chirp.f0.toFixed(0)}→880 Hz over ${chirp.dur.toFixed(2)} s, exhale ${down.f0.toFixed(0)}→196 Hz over ${down.dur.toFixed(2)} s`);
+  let log = await page.evaluate(() => window.__bwCues.log);
+  assert.ok(log.some((e) => e.type === 'bell-start')); ok('singing-bowl start bell scheduled');
+  assert.ok(log.some((e) => e.type === 'ambient-start') && (await page.evaluate(() => window.__bufsrc)) >= 2); ok('ambient ocean bed started (buffer source)');
+  const said = log.filter((e) => e.type === 'speak').map((e) => e.text);
+  assert.ok(['Breathe in', 'And a little more', 'Long breath out'].every((t) => said.includes(t)), said.join('|')); ok(`spoken cues: ${said.slice(0, 4).join(' / ')}`);
+  await page.click('#endBtn'); await page.click('#doneBtn');
+  await page.locator('label.toggle:has([data-cue=ambient])').click(); await page.locator('label.toggle:has([data-cue=voice])').click();
+
+  await page.goto(`${BASE}#/t/box`); await page.waitForSelector('#startBtn');
+  await page.locator('label.chip-opt:has(input[name=minutes][value="1"])').click();
+  await page.evaluate(() => { window.__osc.length = 0; window.__bwCues.log.length = 0; });
+  await page.click('#startBtn');
+  await page.waitForTimeout(3000 + 1800); await shot(`${pad(n++)}-session-box-inhale`);
+  await page.waitForTimeout(4000); await shot(`${pad(n++)}-session-box-hold`);
+  await page.waitForTimeout(6800);
+  g = await glides();
+  const bUp = g.find((x) => x.f1 === 440 && x.f0 >= 220 && x.f0 < 232 && x.dur > 1), bDown = g.find((x) => x.f1 === 196 && x.f0 <= 392 && x.f0 > 375 && x.dur > 1);
+  assert.ok(bUp && near(bUp.dur, 4), `box inhale ${JSON.stringify(bUp)}`); assert.ok(bDown && near(bDown.dur, 4), `box exhale ${JSON.stringify(bDown)}`);
+  const drone = await page.evaluate(() => window.__osc.find((r) => r.ev.length === 1 && r.ev[0][1] === 330));
+  assert.ok(drone && near(drone.stop - drone.start, 4.05, 0.2), `hold drone ${JSON.stringify(drone)}`);
+  log = await page.evaluate(() => window.__bwCues.log);
+  assert.ok(log.filter((e) => e.type === 'corner').length >= 3 && log.filter((e) => e.type === 'tick').length >= 3);
+  ok(`box audio: up ${bUp.dur.toFixed(2)} s, steady 330 Hz hold drone ${(drone.stop - drone.start).toFixed(2)} s, down ${bDown.dur.toFixed(2)} s, corner chimes + hold ticks`);
+  await page.click('#endBtn'); await page.click('#doneBtn');
+
+  // ---------- Low-light mode ----------
+  await page.goto(BASE); await page.waitForSelector('#nightBtn');
+  await page.click('#nightBtn');
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.night), 'on');
+  await page.reload(); await page.waitForSelector('.card');
+  assert.equal(await page.locator('#nightBtn').getAttribute('aria-pressed'), 'true'); ok('low-light mode toggles and persists');
+  await page.waitForTimeout(400); await shot(`${pad(n++)}-home-lowlight`);
+  await page.goto(`${BASE}#/t/extended_exhale`); await page.waitForSelector('#startBtn'); await page.click('#startBtn');
+  await page.waitForTimeout(3000 + 6000); await shot(`${pad(n++)}-session-lowlight-exhale`);
+  await page.click('#endBtn'); await page.click('#doneBtn');
+  await page.goto(BASE); await page.waitForSelector('#nightBtn'); await page.click('#nightBtn');
+
   // A full session to completion: 1 physiological sigh (3 s lead-in + 10 s)
   await page.goto(`${BASE}#/t/sigh_reset`); await page.waitForSelector('#startBtn');
   await page.locator('label.chip-opt:has(input[name=rounds][value="1"])').click();
   await page.click('#startBtn');
   await page.waitForSelector('text=Session complete', { timeout: 20000 });
   assert.match(await page.locator('.lead').innerText(), /0:10 of breathing/); ok('full 1-sigh session completes with 0:10');
-  await shot(`${String(n++).padStart(2, '0')}-complete`);
+  await shot(`${pad(n++)}-complete`);
   await page.click('#doneBtn');
   await page.goto(`${BASE}#/history`); await page.waitForSelector('.hist li');
   const hist = await page.locator('.hist li').count();
-  assert.equal(hist, 1); ok("history records the completed session; ended sessions under 10 s are skipped like the app");
+  const top = await page.locator(".hist li").first().innerText();
+  assert.ok(hist >= 1 && /Physiological sigh/.test(top) && /0:10/.test(top) && !/ended early/.test(top), top); ok(`history: ${hist} entries (≥10 s), latest = completed 0:10 sigh`);
   assert.match(await page.locator('.stat').innerText(), /streak: 1 day/); ok('streak = 1 day');
-  await shot(`${String(n++).padStart(2, '0')}-history`);
+  await shot(`${pad(n++)}-history`);
   page.once('dialog', (d) => d.accept());
   await page.click('#clearBtn'); await page.waitForSelector('text=No sessions yet.'); ok('clear history');
 
   await page.goto(`${BASE}#/about`); await page.waitForSelector('table');
   assert.ok(await page.locator('a[href*="RESEARCH.md"]').count()); ok('about page links RESEARCH.md');
-  await shot(`${String(n++).padStart(2, '0')}-about`);
+  await shot(`${pad(n++)}-about`);
 
   // Light theme
   await page.emulateMedia({ colorScheme: 'light' });
   await page.goto(BASE); await page.waitForSelector('.card');
-  await shot(`${String(n++).padStart(2, '0')}-home-light`);
+  await shot(`${pad(n++)}-home-light`);
   await page.goto(`${BASE}#/t/cyclic_sigh`); await page.waitForSelector('#startBtn'); await page.click('#startBtn');
-  await page.waitForTimeout(5000); await shot(`${String(n++).padStart(2, '0')}-session-light`);
+  await page.waitForTimeout(5000); await shot(`${pad(n++)}-session-light`);
   await page.click('#endBtn'); await page.click('#doneBtn');
   await page.emulateMedia({ colorScheme: 'dark' });
 

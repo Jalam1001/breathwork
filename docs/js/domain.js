@@ -206,6 +206,44 @@ export function toneFor(kind, ms) {
   return { type: 'tick' };
 }
 
+/** Visual/audio phase family: 'in', 'hold' or 'out'. */
+export function phaseGroup(kind) { return isInhale(kind) ? 'in' : isExhale(kind) ? 'out' : 'hold'; }
+
+/**
+ * Eyes-closed audio plan for one phase. Inhale glides UP and exhale glides DOWN for the WHOLE phase,
+ * so the length of each breath is audible; holds are a soft steady drone; the sigh top-up is a short higher chirp.
+ * Without eyes-closed mode the original short, capped cue tones are used (toneFor).
+ */
+export function audioPlan(kind, ms, eyesClosed = true) {
+  if (!eyesClosed) return toneFor(kind, ms);
+  const fast = kind === K.BREATHE_IN || kind === K.BREATHE_OUT;
+  if (kind === K.TOP_UP) return { type: 'chirp', f0: 587, f1: 880, ms };
+  if (isInhale(kind)) return { type: 'inhale', f0: fast ? 262 : 220, f1: fast ? 392 : 440, ms, fast };
+  if (isExhale(kind)) return { type: 'exhale', f0: fast ? 349 : 392, f1: fast ? 233 : 196, ms, fast };
+  return { type: 'hold', f: kind === K.HOLD_FULL ? 330 : 165, ms };
+}
+
+/** Calm spoken phrasing for a step. */
+export function spokenFor(step) {
+  switch (step.kind) {
+    case K.INHALE: return step.label === 'Recovery inhale' ? 'Recovery breath in' : 'Breathe in';
+    case K.TOP_UP: return 'And a little more';
+    case K.HOLD_FULL: return 'Hold';
+    case K.HOLD_EMPTY: return /empty/.test(step.label) ? 'Hold, lungs empty' : 'Hold';
+    case K.EXHALE: return step.label === 'Relax' ? 'Relax, breathe out' : step.label === 'Long exhale' ? 'Long breath out' : 'Breathe out';
+    case K.EXHALE_ALL: return 'Breathe all the way out';
+    case K.BREATHE_IN: return 'In';
+    case K.BREATHE_OUT: return 'Out';
+    default: return step.label;
+  }
+}
+
+/** Spoken round announcement for rounds-based sessions (null when there is nothing to say). */
+export function roundAnnouncement(cycle, cycles) {
+  if (cycles <= 1) return null;
+  return cycle === cycles - 1 ? 'Last round' : `Round ${cycle + 1} of ${cycles}`;
+}
+
 export const formatClock = (ms) => { const s = Math.floor((ms + 999) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 export const ceilSeconds = (ms) => Math.floor((ms + 999) / 1000);
 
@@ -250,7 +288,7 @@ export class SessionController {
   constructor({ clock, cues = {}, onComplete = () => {}, onChange = () => {} }) {
     this.clock = clock; this.cues = cues; this.onComplete = onComplete; this.onChange = onChange;
     this.state = { run: 'idle', timeline: null, elapsedMs: 0, leadInMs: 0, index: 0, completed: false };
-    this.anchor = 0; this.lastHold = -1;
+    this.anchor = 0; this.lastHold = -1; this.halfDone = false;
   }
   _cue(name, ...a) { try { this.cues[name]?.(...a); } catch (e) { /* cues must never break timing */ } }
   _set(patch) { this.state = { ...this.state, ...patch }; this.onChange(this.state); }
@@ -266,10 +304,11 @@ export class SessionController {
   start(config, leadInMs = LEAD_IN_MS) {
     this._cue('stop');
     const tl = new Timeline(config);
-    this.lastHold = -1;
+    this.lastHold = -1; this.halfDone = false;
     this.anchor = this.clock() + leadInMs;
     this._set({ run: leadInMs > 0 ? 'lead_in' : 'running', timeline: tl, elapsedMs: 0, leadInMs, index: 0, completed: false });
-    if (leadInMs > 0) this._cue('onLeadInTick', ceilSeconds(leadInMs)); else this._cue('onSegment', tl.segments[0]);
+    this._cue('onStart', tl);
+    if (leadInMs > 0) this._cue('onLeadInTick', ceilSeconds(leadInMs)); else this._cue('onSegment', tl.segments[0], 0);
   }
   tick() {
     const s = this.state, tl = s.timeline;
@@ -282,7 +321,7 @@ export class SessionController {
         if (sec !== prev) this._cue('onLeadInTick', sec);
       } else {
         this._set({ run: 'running', leadInMs: 0, elapsedMs: 0, index: 0 });
-        this._cue('onSegment', tl.segments[0]);
+        this._cue('onSegment', tl.segments[0], 0);
         this._advance();
       }
     } else if (s.run === 'running') this._advance();
@@ -293,12 +332,13 @@ export class SessionController {
     if (elapsed >= tl.totalMs) { this._finish(true); return; }
     const idx = tl.indexAt(elapsed);
     this._set({ elapsedMs: elapsed, index: idx });
-    if (idx !== s.index) this._cue('onSegment', tl.segments[idx]);
     const seg = tl.segments[idx];
+    if (idx !== s.index) this._cue('onSegment', seg, elapsed - seg.startMs);
+    if (!this.halfDone && elapsed >= tl.totalMs / 2) { this.halfDone = true; this._cue('onHalfway', tl); }
     if (isHold(seg.step.kind)) {
       const sec = Math.floor((elapsed - seg.startMs) / 1000);
       const key = seg.startMs * 1000 + sec;
-      if (sec > 0 && key !== this.lastHold) { this.lastHold = key; this._cue('onHoldSecond'); }
+      if (sec > 0 && key !== this.lastHold) { this.lastHold = key; this._cue('onHoldSecond', seg, sec); }
     }
   }
   pause() {
@@ -315,7 +355,8 @@ export class SessionController {
     if (s.run !== 'paused') return;
     this.anchor = this.clock() - s.elapsedMs;
     this._set({ run: 'running', leadInMs: 0 });
-    const seg = this.segment; if (seg) this._cue('onSegment', seg);
+    this._cue('onResume', s.timeline);
+    const seg = this.segment; if (seg) this._cue('onSegment', seg, s.elapsedMs - seg.startMs);
   }
   end() { if (this.isActive) this._finish(false); }
   reset() { this._cue('stop'); this._set({ run: 'idle', timeline: null, elapsedMs: 0, leadInMs: 0, index: 0, completed: false }); }

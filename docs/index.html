@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>BreathWork – guided breathing</title>
 <meta name="description" content="Offline guided breathing: cyclic sighing, box breathing, resonance, 4-7-8 and more, with visual, sound, voice and vibration cues. No accounts, no trackers.">
-<meta name="theme-color" content="#0B1320">
+<meta name="theme-color" content="#060A18">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; media-src 'self'; manifest-src 'self'; worker-src 'self'">
 <meta name="referrer" content="no-referrer">
 <link rel="manifest" href="manifest.webmanifest">
@@ -20,6 +20,7 @@
 <script type="module" src="js/app.js"></script>
 </head>
 <body>
+<canvas id="bg" aria-hidden="true"></canvas>
 <a class="skip" href="#app">Skip to content</a>
 <div id="app" aria-live="off"><noscript><p class="content">BreathWork needs JavaScript to run the breathing timer.</p></noscript></div>
 </body>
